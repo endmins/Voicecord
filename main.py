@@ -5,7 +5,7 @@ import os
 import random
 from conversations import SCENARIOS
 
-# Lấy thông tin từ .env
+# Lấy cấu hình từ môi trường
 TOKENS_RAW = os.getenv("TOKEN", "")
 GUILD_ID = os.getenv("SERVER_ID")
 CHANNEL_ID = os.getenv("CHANNEL_ID")
@@ -13,7 +13,7 @@ CHANNEL_ID = os.getenv("CHANNEL_ID")
 TARGET_CHANNEL_NAME = "# 5 • 👥 Team Starry's Channel"
 API = "https://discord.com/api/v10"
 
-# DANH SÁCH TÊN CHUẨN ĐÃ MAP VỚI THỨ TỰ TOKEN CỦA NÍ
+# Danh sách chuẩn đã map với thứ tự Token trong .env
 MEMBER_NAMES = [
     "Kikuri",      # 1. hiroikikuri2809
     "Nijika",      # 2. nijikaijichi2905
@@ -25,9 +25,8 @@ MEMBER_NAMES = [
     "TeamStarry"   # 8. teamstarry
 ]
 
-# Nhân vật chính điều khiển kịch bản (Hitori là index 6)
+# Hitori là nhân vật chính (index 6)
 TALKER_INDEX = 6 
-
 TOKEN_JOIN_DELAYS = [ (i * (i + 1) // 2) * 60 for i in range(8) ]
 
 class TokenClient:
@@ -39,7 +38,6 @@ class TokenClient:
 
     async def join_voice(self):
         try:
-            # Đổi tên kênh khi join
             requests.patch(f"{API}/channels/{self.channel_id}", 
                            headers={"Authorization": self.token}, 
                            json={"name": TARGET_CHANNEL_NAME})
@@ -47,21 +45,35 @@ class TokenClient:
         print(f"[*] {self.name} đã vào voice.")
 
     async def chat_loop(self):
-        """Logic chat với thời gian random"""
         s_idx = 0
         while True:
             scenario = SCENARIOS[s_idx]
             for speaker, content in scenario:
                 if speaker == self.name:
-                    # Random delay: 20-45 giây giữa các câu
-                    await asyncio.sleep(random.uniform(20, 45))
+                    # Logic Typing thật: Tốc độ ~5 ký tự/giây + sai số ngẫu nhiên
+                    typing_duration = len(content) / 5
+                    typing_delay = typing_duration + random.uniform(1, 3)
                     
+                    # 1. Gửi tín hiệu "Đang gõ..."
+                    try:
+                        requests.post(f"{API}/channels/{self.channel_id}/typing", 
+                                      headers={"Authorization": self.token})
+                    except: pass
+                    
+                    # 2. Đợi đúng thời gian "gõ"
+                    await asyncio.sleep(typing_delay)
+                    
+                    # 3. Gửi tin nhắn
                     headers = {"Authorization": self.token, "Content-Type": "application/json"}
                     requests.post(f"{API}/channels/{self.channel_id}/messages", 
                                   headers=headers, json={"content": content})
-                    print(f"[{self.name}] Đã nhắn: {content}")
+                    
+                    print(f"[{self.name}] Đã nhắn ({len(content)} ký tự) - Typing mất {typing_delay:.1f}s")
+                    
+                    # 4. Khoảng nghỉ sau khi nhắn để người khác kịp đọc
+                    await asyncio.sleep(random.uniform(5, 12))
             
-            # Random nghỉ giữa các kịch bản: 80-100 phút
+            # 5. Nghỉ giữa các kịch bản (80-100 phút)
             rest_time = random.randint(4800, 6000)
             print(f"[*] {self.name} hoàn thành kịch bản {s_idx+1}, nghỉ {rest_time//60} phút.")
             await asyncio.sleep(rest_time)
@@ -71,10 +83,8 @@ class TokenClient:
 async def run_token(token, i, gid, cid):
     client = TokenClient(token, i, MEMBER_NAMES[i], gid, cid)
     
-    # Delay join theo thứ tự
-    delay = TOKEN_JOIN_DELAYS[i]
-    print(f"[*] {client.name} sẽ join sau {delay//60} phút")
-    await asyncio.sleep(delay)
+    # Delay join lần đầu
+    await asyncio.sleep(TOKEN_JOIN_DELAYS[i])
     
     await asyncio.gather(
         client.join_voice(),
@@ -83,7 +93,9 @@ async def run_token(token, i, gid, cid):
 
 async def main():
     tokens = [t.strip() for t in TOKENS_RAW.split(",") if t.strip()]
-    if not tokens: return
+    if not tokens: 
+        print("[-] Không tìm thấy Token trong file .env!")
+        return
     
     tasks = [asyncio.create_task(run_token(tokens[i], i, GUILD_ID, CHANNEL_ID)) 
              for i in range(min(len(tokens), len(MEMBER_NAMES)))]
